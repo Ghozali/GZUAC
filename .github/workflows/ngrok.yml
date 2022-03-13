@@ -1,36 +1,38 @@
-name: Windows Server 2016
+name: NGROK
 
-on: workflow_dispatch
+on: [workflow_dispatch]
 
 jobs:
   build:
 
-    runs-on: windows-2016
-    timeout-minutes: 9999
-
+    runs-on: windows-latest
     steps:
-    - name: Download files.
-      run: |
-        Invoke-WebRequest https://github.com/r3xzt/GitHub-Action-RDP/raw/main/Windows/ngrok.exe -OutFile ngrok.exe
-        Invoke-WebRequest https://github.com/r3xzt/GitHub-Action-RDP/raw/main/Windows/NGROK-AP.bat -OutFile NGROK-AP.bat
-        Invoke-WebRequest https://github.com/r3xzt/GitHub-Action-RDP/raw/main/Windows/user-create.bat -OutFile user-create.bat
-        Invoke-WebRequest https://github.com/r3xzt/GitHub-Action-RDP/raw/main/Windows/info.bat -OutFile info.bat
-        Invoke-WebRequest https://github.com/r3xzt/GitHub-Action-RDP/raw/main/Windows/loop.bat -OutFile loop.bat
-    - name: Connect your NGROK account.
-      run: | 
-        .\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+    - name: Download
+      run: Invoke-WebRequest https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract
+      run: Expand-Archive ngrok.zip
+    - name: Auth
+      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-    - name: Enable RDP Access.
-      run: | 
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - name: Create Tunnel.
-      run: Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389 -region ${{ secrets.NGROK_REGION }}"
-    - name: Create user account.
-      run: cmd /c user-create.bat
-    - name: VM Info.
-      run: cmd /c info.bat
-    - name: Keep your VM alive.
-      run: cmd /c loop.bat
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "${{ secrets.PASSWORD }}" -Force)
+    - run: Set-WinUserLanguageList -LanguageList tr, en-US -Force
+    
+    
+    - run:  Invoke-WebRequest https://github.com/CI-Devs/Windows-RDP-ACTIONS/raw/main/send_telegram.ps1 -OutFile C:\send_telegram.ps1
+   
+            
+      
+    - name: NGROK Tunnel and telegram
+      run: |
+           Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389 -region ${{ secrets.NGROK_REGION }}"
+           Start-Sleep -s 30
+           $Response = ConvertFrom-Json(Invoke-WebRequest -Uri "http://127.0.0.1:4040/api/tunnels")
+           Start-Sleep -s 1
+           $URLString = $Response.tunnels.public_url
+           if($URLString) { C:\send_telegram.ps1 ${{ secrets.TG_TOKEN }} ${{ secrets.TG_CHAT_ID }} ($URLString -split "tcp://")[1]}
+           Start-Sleep -s 21600
